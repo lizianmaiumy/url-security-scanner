@@ -1,4 +1,5 @@
 # Web Security & SSL/TLS Validator (CLI)
+![Tests](https://github.com/lizianmaiumy/url-security-scanner/actions/workflows/tests.yml/badge.svg)
 
 A lightweight Python command-line utility designed to audit public web endpoints by inspecting HTTP security headers and analyzing SSL/TLS certificate lifecycles.
 
