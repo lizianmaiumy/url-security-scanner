@@ -11,77 +11,68 @@ HEADERS_DE_SEGURANCA = [
     "X-Content-Type-Options",
 ]
 
-def extrair_dominio(url):
-    """Extrai apenas o domínio limpo da URL (ex: 'https://github.com/teste' -> 'github.com')."""
+def extrair_dominio(url: str) -> str:
+    """Extrai apenas o domínio limpo da URL."""
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = f"https://{url}"
     parsed = urlparse(url)
     return parsed.netloc or parsed.path
 
-def verificar_certificado_ssl(dominio):
-    print(f"\n[+] Verificando Certificado SSL/TLS para: {dominio}")
-    
-    contexto = ssl.create_default_context()
-    
-    try:
-        with socket.create_connection((dominio, 443), timeout=5) as sock:
-            # Envelopa o socket com a camada criptográfica TLS
-            with contexto.wrap_socket(sock, server_hostname=dominio) as ssock:
-                certificado = ssock.getpeercert()
-                
-                formato_data = r"%b %d %H:%M:%S %Y %Z"
-                data_expiracao_str = certificado["notAfter"]
-                data_expiracao = datetime.strptime(data_expiracao_str, formato_data).replace(tzinfo=timezone.utc)
-                
-                agora = datetime.now(timezone.utc)
-                dias_restantes = (data_expiracao - agora).days
-                
-                print(f"  - Emitido para: {dominio}")
-                print(f"  - Expira em: {data_expiracao.strftime('%d/%m/%Y às %H:%M UTC')}")
-                
-                if dias_restantes < 0:
-                    print(f"  - Status: [PERIGO] Certificado EXPIRADO há {abs(dias_restantes)} dias!")
-                elif dias_restantes < 15:
-                    print(f"  - Status: [ALERTA] Certificado expira em breve ({dias_restantes} dias restantes)!")
-                else:
-                    print(f"  - Status: [OK] Válido por mais {dias_restantes} dias.")
-                    
-    except Exception as erro:
-        print(f"  - [ERRO] Não foi possível verificar o certificado SSL: {erro}")
-
-def verificar_cabecalhos(url):
-    print(f"\n[+] Analisando cabeçalhos de segurança para: {url}")
+def verificar_cabecalhos(url: str) -> dict:
+    """Retorna um dicionário com o status de cada cabeçalho de segurança."""
+    resultados = {}
     try:
         resposta = requests.get(url, timeout=5)
-        print(f"Status HTTP: {resposta.status_code} ({resposta.reason})")
-        
-        cabecalhos_recebidos = resposta.headers
-        print("\n--- Relatório de Cabeçalhos ---")
+        cabecalhos_recebidos = {k.lower(): v for k, v in resposta.headers.items()}
         for header in HEADERS_DE_SEGURANCA:
-            if header in cabecalhos_recebidos:
-                print(f"[OK] {header}: PRESENTE")
-            else:
-                print(f"[FALHA] {header}: AUSENTE")
-    except requests.exceptions.RequestException as erro:
-        print(f"[ERRO] Falha ao conectar ao servidor: {erro}")
+            resultados[header] = header.lower() in cabecalhos_recebidos
+        return resultados
+    except requests.exceptions.RequestException:
+        return {}
+
+def verificar_certificado_ssl(dominio: str) -> dict:
+    """Retorna dados de expiração e dias restantes do certificado SSL/TLS."""
+    contexto = ssl.create_default_context()
+    try:
+        with socket.create_connection((dominio, 443), timeout=5) as sock:
+            with contexto.wrap_socket(sock, server_hostname=dominio) as ssock:
+                certificado = ssock.getpeercert()
+                formato_data = r"%b %d %H:%M:%S %Y %Z"
+                data_expiracao = datetime.strptime(certificado["notAfter"], formato_data).replace(tzinfo=timezone.utc)
+                agora = datetime.now(timezone.utc)
+                dias_restantes = (data_expiracao - agora).days
+                return {
+                    "valido": True,
+                    "expira_em": data_expiracao,
+                    "dias_restantes": dias_restantes
+                }
+    except Exception as erro:
+        return {
+            "valido": False,
+            "erro": str(erro)
+        }
 
 if __name__ == "__main__":
     print("=" * 50)
     print("      VALIDADOR DE SEGURANÇA WEB (CLI)      ")
     print("=" * 50)
-    
     entrada = input("\nDigite o domínio ou URL para analisar (ex: github.com): ").strip()
-    
     if not entrada:
         print("[ERRO] Nenhuma URL informada. Encerrando.")
     else:
-        if not entrada.startswith("http://") and not entrada.startswith("https://"):
-            url_alvo = f"https://{entrada}"
-        else:
-            url_alvo = entrada
+        url_alvo = f"https://{entrada}" if not entrada.startswith(("http://", "https://")) else entrada
+        
+        print(f"\n[+] Analisando cabeçalhos para: {url_alvo}")
+        cabecalhos = verificar_cabecalhos(url_alvo)
+        for h, presente in cabecalhos.items():
+            print(f"[{'OK' if presente else 'FALHA'}] {h}: {'PRESENTE' if presente else 'AUSENTE'}")
             
-        verificar_cabecalhos(url_alvo)
-        
         dominio_alvo = extrair_dominio(url_alvo)
-        verificar_certificado_ssl(dominio_alvo)
-        
-        print("\n" + "=" * 50)
-        print("Análise concluída com sucesso.")
+        print(f"\n[+] Verificando Certificado SSL/TLS para: {dominio_alvo}")
+        ssl_info = verificar_certificado_ssl(dominio_alvo)
+        if ssl_info.get("valido"):
+            dias = ssl_info["dias_restantes"]
+            print(f"  - Expira em: {ssl_info['expira_em'].strftime('%d/%m/%Y às %H:%M UTC')}")
+            print(f"  - Status: {'[OK]' if dias > 15 else '[ALERTA]'} Válido por mais {dias} dias.")
+        else:
+            print(f"  - [ERRO] {ssl_info.get('erro')}")
