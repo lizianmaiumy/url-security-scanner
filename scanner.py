@@ -4,6 +4,13 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 import requests
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.prompt import Prompt
+
+console = Console()
+
 HEADERS_DE_SEGURANCA = [
     "Strict-Transport-Security",
     "Content-Security-Policy",
@@ -52,27 +59,67 @@ def verificar_certificado_ssl(dominio: str) -> dict:
             "erro": str(erro)
         }
 
+def exibir_banner():
+    texto_banner = "[bold cyan]WEB SECURITY & SSL/TLS VALIDATOR[/bold cyan]\n[dim]Auditoria rápida de cabeçalhos OWASP e ciclo de certificados TLS[/dim]"
+    console.print(Panel(texto_banner, style="cyan", expand=False))
+
+def exibir_tabela_cabecalhos(cabecalhos: dict):
+    tabela = Table(title="Cabeçalhos de Segurança (OWASP)", show_header=True, header_style="bold magenta")
+    tabela.add_column("Cabeçalho", style="dim", width=30)
+    tabela.add_column("Status", justify="center")
+    tabela.add_column("Diagnóstico", justify="left")
+
+    if not cabecalhos:
+        console.print("[bold red][!] Falha ao conectar ao servidor para inspecionar cabeçalhos.[/bold red]")
+        return
+
+    for header, presente in cabecalhos.items():
+        if presente:
+            tabela.add_row(header, "[bold green]✔ PRESENTE[/bold green]", "Mitigação ativa")
+        else:
+            tabela.add_row(header, "[bold red]✖ AUSENTE[/bold red]", "Vulnerável a exploração")
+
+    console.print(tabela)
+
+def exibir_card_ssl(ssl_info: dict, dominio: str):
+    if not ssl_info.get("valido"):
+        console.print(Panel(f"[bold red]Erro na inspeção SSL/TLS:[/bold red] {ssl_info.get('erro')}", title="Certificado SSL/TLS", border_style="red"))
+        return
+
+    dias = ssl_info["dias_restantes"]
+    data_fmt = ssl_info["expira_em"].strftime("%d/%m/%Y às %H:%M UTC")
+
+    if dias < 0:
+        cor = "red"
+        status = f"[bold red]EXPIRADO há {abs(dias)} dias[/bold red]"
+    elif dias < 15:
+        cor = "yellow"
+        status = f"[bold yellow]ALERTA: Expira em breve ({dias} dias restantes)[/bold yellow]"
+    else:
+        cor = "green"
+        status = f"[bold green]OK: Válido por mais {dias} dias[/bold green]"
+
+    conteudo = f"[b]Domínio:[/b] {dominio}\n[b]Expiração:[/b] {data_fmt}\n[b]Diagnóstico:[/b] {status}"
+    console.print(Panel(conteudo, title="Certificado SSL/TLS", border_style=cor))
+
 if __name__ == "__main__":
-    print("=" * 50)
-    print("      VALIDADOR DE SEGURANÇA WEB (CLI)      ")
-    print("=" * 50)
-    entrada = input("\nDigite o domínio ou URL para analisar (ex: github.com): ").strip()
+    exibir_banner()
+    
+    entrada = Prompt.ask("\n[bold yellow]?[/bold yellow] Digite o domínio ou URL para analisar").strip()
+    
     if not entrada:
-        print("[ERRO] Nenhuma URL informada. Encerrando.")
+        console.print("[red]Nenhuma URL informada. A terminar.[/red]")
     else:
         url_alvo = f"https://{entrada}" if not entrada.startswith(("http://", "https://")) else entrada
-        
-        print(f"\n[+] Analisando cabeçalhos para: {url_alvo}")
-        cabecalhos = verificar_cabecalhos(url_alvo)
-        for h, presente in cabecalhos.items():
-            print(f"[{'OK' if presente else 'FALHA'}] {h}: {'PRESENTE' if presente else 'AUSENTE'}")
-            
         dominio_alvo = extrair_dominio(url_alvo)
-        print(f"\n[+] Verificando Certificado SSL/TLS para: {dominio_alvo}")
-        ssl_info = verificar_certificado_ssl(dominio_alvo)
-        if ssl_info.get("valido"):
-            dias = ssl_info["dias_restantes"]
-            print(f"  - Expira em: {ssl_info['expira_em'].strftime('%d/%m/%Y às %H:%M UTC')}")
-            print(f"  - Status: {'[OK]' if dias > 15 else '[ALERTA]'} Válido por mais {dias} dias.")
-        else:
-            print(f"  - [ERRO] {ssl_info.get('erro')}")
+
+        with console.status(f"[bold green]A analisar {dominio_alvo}...[/bold green]"):
+            cabecalhos = verificar_cabecalhos(url_alvo)
+            ssl_info = verificar_certificado_ssl(dominio_alvo)
+
+        console.print()
+        exibir_tabela_cabecalhos(cabecalhos)
+        console.print()
+        exibir_card_ssl(ssl_info, dominio_alvo)
+
+        Prompt.ask("\n[dim]Pressione Enter para fechar...[/dim]", default="")

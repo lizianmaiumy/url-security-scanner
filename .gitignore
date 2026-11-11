@@ -8,3 +8,7 @@ __pycache__/
 
 # Configurações do VS Code
 .vscode/
+
+# Pasta de distribuição e build
+dist/
+build/
