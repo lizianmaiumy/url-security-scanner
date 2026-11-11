@@ -3,6 +3,8 @@ import ssl
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 import requests
+import sys
+import ctypes
 
 from rich.console import Console
 from rich.panel import Panel
@@ -17,6 +19,30 @@ HEADERS_DE_SEGURANCA = [
     "X-Frame-Options",
     "X-Content-Type-Options",
 ]
+
+def configurar_icone_janela():
+    """Aplica o ícone da aplicação na barra de título da consola Windows."""
+    if sys.platform != "win32":
+        return
+    try:
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if not hwnd:
+            return
+
+        h_instance = ctypes.windll.kernel32.GetModuleHandleW(None)
+
+        IMAGE_ICON = 1
+        LR_DEFAULTSIZE = 0x0040
+        h_icon = ctypes.windll.user32.LoadImageW(h_instance, 1, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE)
+
+        if h_icon:
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_icon)
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_icon)
+    except Exception:
+        pass
 
 def extrair_dominio(url: str) -> str:
     """Extrai apenas o domínio limpo da URL."""
@@ -103,6 +129,7 @@ def exibir_card_ssl(ssl_info: dict, dominio: str):
     console.print(Panel(conteudo, title="Certificado SSL/TLS", border_style=cor))
 
 if __name__ == "__main__":
+    configurar_icone_janela()
     exibir_banner()
     
     entrada = Prompt.ask("\n[bold yellow]?[/bold yellow] Digite o domínio ou URL para analisar").strip()
